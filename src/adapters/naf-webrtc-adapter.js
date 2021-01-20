@@ -28,10 +28,14 @@ class WebRtcPeer {
 
     // If there are errors with Safari implement this:
     // https://github.com/OpenVidu/openvidu/blob/master/openvidu-browser/src/OpenViduInternal/WebRtcPeer/WebRtcPeer.ts#L154
-    
-    if (options.sendAudio) {
-      options.localAudioStream.getTracks().forEach(
-        track => self.pc.addTrack(track, options.localAudioStream));
+
+    if (!this.haveAddedTracks && (options.sendAudio || options.sendVideo)) {
+      options.localAVStream.getTracks().forEach(
+        track => {
+          this.haveAddedTracks = true;
+          return self.pc.addTrack(track, options.localAVStream)
+        }
+      );
     }
 
     this.pc.createOffer(
@@ -43,7 +47,7 @@ class WebRtcPeer {
       },
       {
         offerToReceiveAudio: true,
-        offerToReceiveVideo: false,
+        offerToReceiveVideo: true,
       }
     );
   }
@@ -284,8 +288,8 @@ class WebrtcAdapter {
     this.peers = {}; // id -> WebRtcPeer
     this.occupants = {}; // id -> joinTimestamp
 
-    this.audioStreams = {};
-    this.pendingAudioRequest = {};
+    this.avStreams = {};
+    this.pendingStreamRequest = {};
 
     this.serverTimeRequests = 0;
     this.timeOffsets = [];
@@ -314,7 +318,7 @@ class WebrtcAdapter {
       this.sendAudio = true;
     }
     if (options.video === true) {
-      NAF.log.warn("WebrtcAdapter does not support video yet.");
+      this.sendVideo = true;
     }
   }
 
@@ -345,60 +349,61 @@ class WebrtcAdapter {
           self.wsUrl = "ws://" + location.host;
         }
       }
-  
+
       NAF.log.write("Attempting to connect to socket.io");
       const socket = self.socket = io(self.wsUrl);
-  
+
       socket.on("connect", () => {
         NAF.log.write("User connected", socket.id);
         self.myId = socket.id;
         self.joinRoom();
       });
-  
+
       socket.on("connectSuccess", (data) => {
         const { joinedTime } = data;
-  
+
         self.myRoomJoinTime = joinedTime;
         NAF.log.write("Successfully joined room", self.room, "at server time", joinedTime);
-  
-        if (self.sendAudio) {
+
+        if (self.sendAudio || self.sendVideo) {
           const mediaConstraints = {
-            audio: true,
-            video: false
+            audio: self.sendAudio,
+            video: self.sendVideo
           };
           navigator.mediaDevices.getUserMedia(mediaConstraints)
           .then(localStream => {
-            self.storeAudioStream(self.myId, localStream);
+            self.storeAVStream(self.myId, localStream);
             self.connectSuccess(self.myId);
             localStream.getTracks().forEach(
               track => {
-                Object.keys(self.peers).forEach(peerId => { 
-                self.peers[peerId].pc.addTrack(track, localStream) 
-              })
+                Object.keys(self.peers).forEach(peerId => {
+                  self.peers[peerId].pc.addTrack(track, localStream)
+                })
             })
           })
           .catch(e => {
             NAF.log.error(e);
-            console.error("Microphone is disabled due to lack of permissions");
+            console.error("Microphone/Cam is disabled due to lack of permissions");
             self.sendAudio = false;
+            self.sendVideo = false;
             self.connectSuccess(self.myId);
           });
         } else {
           self.connectSuccess(self.myId);
         }
       });
-  
+
       socket.on("error", err => {
         console.error("Socket connection failure", err);
         self.connectFailure();
       });
-  
+
       socket.on("occupantsChanged", data => {
         const { occupants } = data;
         NAF.log.write('occupants changed', data);
         self.receivedOccupants(occupants);
       });
-  
+
       function receiveData(packet) {
         const from = packet.from;
         const type = packet.type;
@@ -409,7 +414,7 @@ class WebrtcAdapter {
         }
         self.messageListener(from, type, data);
       }
-  
+
       socket.on("send", receiveData);
       socket.on("broadcast", receiveData);
     })
@@ -464,13 +469,13 @@ class WebrtcAdapter {
 
   startStreamConnection(remoteId) {
     NAF.log.write('starting offer process');
-
-    if (this.sendAudio) {
+    if (this.sendAudio || this.sendVideo) {
       this.getMediaStream(this.myId)
       .then(stream => {
         const options = {
-          sendAudio: true,
-          localAudioStream: stream,
+          sendAudio: this.sendAudio,
+          sendVideo: this.sendVideo,
+          localAVStream: stream,
         };
         this.peers[remoteId].offer(options);
       });
@@ -537,28 +542,28 @@ class WebrtcAdapter {
     this.socket.emit("broadcast", packet);
   }
 
-  storeAudioStream(clientId, stream) {
-    this.audioStreams[clientId] = stream;
-    if (this.pendingAudioRequest[clientId]) {
-      NAF.log.write("Received pending audio for " + clientId);
-      this.pendingAudioRequest[clientId](stream);
-      delete this.pendingAudioRequest[clientId](stream);
+  storeAVStream(clientId, stream) {
+    this.avStreams[clientId] = stream;
+    if (this.pendingStreamRequest[clientId]) {
+      NAF.log.write("Received pending audio/video for " + clientId);
+      this.pendingStreamRequest[clientId](stream);
+      delete this.pendingStreamRequest[clientId](stream);
     }
   }
 
   trackListener(clientId, stream) {
-    this.storeAudioStream(clientId, stream);
+    this.storeAVStream(clientId, stream);
   }
 
   getMediaStream(clientId) {
     const self = this;
-    if (this.audioStreams[clientId]) {
-      NAF.log.write("Already had audio for " + clientId);
-      return Promise.resolve(this.audioStreams[clientId]);
+    if (this.avStreams[clientId]) {
+      NAF.log.write("Already have audio/video for " + clientId);
+      return Promise.resolve(this.avStreams[clientId]);
     } else {
-      NAF.log.write("Waiting on audio for " + clientId);
+      NAF.log.write("Waiting on audio/video for " + clientId);
       return new Promise(resolve => {
-        self.pendingAudioRequest[clientId] = resolve;
+        self.pendingStreamRequest[clientId] = resolve;
       });
     }
   }
