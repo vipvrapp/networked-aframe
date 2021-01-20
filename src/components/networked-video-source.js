@@ -87,8 +87,12 @@ AFRAME.registerComponent('networked-video-source', {
 
   setupVideo: function(stream, ownerId) {
     var videoId = `webrtc-screen-${ownerId}`;
-    var video = document.createElement('video');
-    video.setAttribute("id", videoId);
+    var video = document.getElementById(videoId);
+    if (!video) {
+      video = document.createElement('video');
+      video.muted = true;
+      video.setAttribute("id", videoId);
+    }
     video.srcObject = stream;
     video.onloadedmetadata = () => {
       video.play();
