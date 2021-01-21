@@ -98,7 +98,7 @@ AFRAME.registerComponent('networked-video-source', {
       video.play();
     }
     document.getElementsByTagName('a-assets')[0].appendChild(video);
-    this.el.getElementsByTagName('a-video')[0].setAttribute(
+    this.el.getElementsByClassName('video')[0].setAttribute(
       "src", `#${videoId}`);
     video.play();
   },
