@@ -1,3 +1,4 @@
+const EasyRtcAdapter = require("./naf-easyrtc-adapter.js")
 const WebrtcAdapter = require("./naf-webrtc-adapter");
 const SocketioAdapter = require('./naf-socketio-adapter');
 
@@ -6,6 +7,7 @@ class AdapterFactory {
     this.adapters = {
       "socketio": SocketioAdapter,
       "webrtc": WebrtcAdapter,
+      "easyrtc": EasyRtcAdapter,
     };
 
     this.IS_CONNECTED = AdapterFactory.IS_CONNECTED;
@@ -22,10 +24,10 @@ class AdapterFactory {
     if (this.adapters[name]) {
       var AdapterClass = this.adapters[name];
       return new AdapterClass();
-    } else if (name === 'easyrtc' || name == 'wseasyrtc') {
+    } else if (name == 'wseasyrtc') {
       throw new Error(
         "Adapter: " +
-          adapterName + 
+          adapterName +
           " not registered. EasyRTC support was removed in Networked-Aframe 0.7.0." +
           " To use the deprecated EasyRTC adapter see https://github.com/networked-aframe/naf-easyrtc-adapter"
         );
