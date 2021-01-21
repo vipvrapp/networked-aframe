@@ -7,8 +7,8 @@ class EasyRtcAdapter {
     this.app = "default";
     this.room = "default";
 
-    this.audioStreams = {};
-    this.pendingAudioRequest = {};
+    this.avStreams = {};
+    this.pendingStreamRequest = {};
 
     this.serverTimeRequests = 0;
     this.timeOffsets = [];
@@ -28,15 +28,15 @@ class EasyRtcAdapter {
     this.easyrtc.joinRoom(roomName, null);
   }
 
-  // options: { datachannel: bool, audio: bool }
+  // options: { datachannel: bool, audio: bool, video: bool }
   setWebRtcOptions(options) {
     // this.easyrtc.enableDebug(true);
     this.easyrtc.enableDataChannels(options.datachannel);
 
-    this.easyrtc.enableVideo(false);
+    this.easyrtc.enableVideo(options.video);
     this.easyrtc.enableAudio(options.audio);
 
-    this.easyrtc.enableVideoReceive(false);
+    this.easyrtc.enableVideoReceive(true);
     this.easyrtc.enableAudioReceive(true);
   }
 
@@ -94,10 +94,10 @@ class EasyRtcAdapter {
     Promise.all([
       this.updateTimeOffset(),
       new Promise((resolve, reject) => {
-        this._connect(this.easyrtc.audioEnabled, resolve, reject);
+        this._connect(this.easyrtc.audioEnabled, this.easyrtc.videoEnabled, resolve, reject);
       })
     ]).then(([_, clientId]) => {
-      this._storeAudioStream(
+      this._storeAVStream(
         this.easyrtc.myEasyrtcid,
         this.easyrtc.getLocalStream()
       );
@@ -176,13 +176,13 @@ class EasyRtcAdapter {
 
   getMediaStream(clientId) {
     var that = this;
-    if (this.audioStreams[clientId]) {
-      NAF.log.write("Already had audio for " + clientId);
-      return Promise.resolve(this.audioStreams[clientId]);
+    if (this.avStreams[clientId]) {
+      NAF.log.write("Already had audio/video for " + clientId);
+      return Promise.resolve(this.avStreams[clientId]);
     } else {
-      NAF.log.write("Waiting on audio for " + clientId);
+      NAF.log.write("Waiting on audio/video for " + clientId);
       return new Promise(function(resolve) {
-        that.pendingAudioRequest[clientId] = resolve;
+        that.pendingStreamRequest[clientId] = resolve;
       });
     }
   }
@@ -195,25 +195,25 @@ class EasyRtcAdapter {
    * Privates
    */
 
-  _storeAudioStream(easyrtcid, stream) {
-    this.audioStreams[easyrtcid] = stream;
-    if (this.pendingAudioRequest[easyrtcid]) {
-      NAF.log.write("got pending audio for " + easyrtcid);
-      this.pendingAudioRequest[easyrtcid](stream);
-      delete this.pendingAudioRequest[easyrtcid](stream);
+  _storeAVStream(easyrtcid, stream) {
+    this.avStreams[easyrtcid] = stream;
+    if (this.pendingStreamRequest[easyrtcid]) {
+      NAF.log.write("got pending audio/video for " + easyrtcid);
+      this.pendingStreamRequest[easyrtcid](stream);
+      delete this.pendingStreamRequest[easyrtcid](stream);
     }
   }
 
-  _connect(audioEnabled, connectSuccess, connectFailure) {
+  _connect(audioEnabled, videoEnabled, connectSuccess, connectFailure) {
     var that = this;
 
-    this.easyrtc.setStreamAcceptor(this._storeAudioStream.bind(this));
+    this.easyrtc.setStreamAcceptor(this._storeAVStream.bind(this));
 
     this.easyrtc.setOnStreamClosed(function(easyrtcid) {
-      delete that.audioStreams[easyrtcid];
+      delete that.avStreams[easyrtcid];
     });
-
-    if (audioEnabled) {
+    // Can this get hit multiple times?
+    if (audioEnabled || videoEnabled) {
       this.easyrtc.initMediaSource(
         function() {
           that.easyrtc.connect(that.app, connectSuccess, connectFailure);
