@@ -92,6 +92,7 @@ AFRAME.registerComponent('networked-video-source', {
       video = document.createElement('video');
       video.muted = true;
       video.setAttribute("id", videoId);
+      video.dataset.channel = ownerId;
     }
     video.srcObject = stream;
     video.onloadedmetadata = () => {
